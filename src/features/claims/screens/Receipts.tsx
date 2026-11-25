@@ -35,6 +35,14 @@ interface ReceiptRecord {
   orNumber?: string;
 }
 
+const isImagePreviewUrl = (url: string) =>
+  url.startsWith('data:image') || url.startsWith('blob:') || /\.(jpeg|jpg|gif|png)($|\?)/i.test(url);
+
+const isPdfPreviewUrl = (url: string) => /\.pdf($|\?)/i.test(url);
+const MIN_IMAGE_ZOOM = 50;
+const MAX_IMAGE_ZOOM = 200;
+const IMAGE_ZOOM_STEP = 10;
+
 export function Receipts() {
   const navigate = useNavigate();
   const { lineItems, claims, currentUser, users } = useAppContext();
@@ -52,6 +60,10 @@ export function Receipts() {
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest' | 'missing'>('newest');
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRecord | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [hasPreviewError, setHasPreviewError] = useState(false);
+  const [imageZoom, setImageZoom] = useState(100);
+  const [imageBaseSize, setImageBaseSize] = useState<{ width: number; height: number } | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [groupBy, setGroupBy] = useState<'none' | 'member' | 'client'>('none');
   const [currentPage, setCurrentPage] = useState(1);
@@ -67,6 +79,23 @@ export function Receipts() {
     .sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<'mine' | 'team'>(isApprover ? 'team' : 'mine');
   const itemsPerPage = isApprover && scope === 'team' ? 5 : 8;
+
+  const openReceiptPreview = (receipt: ReceiptRecord) => {
+    const url = uploadUrl(receipt.fileUrl) ?? '';
+    setIsPreviewLoading(Boolean(url && (isImagePreviewUrl(url) || isPdfPreviewUrl(url))));
+    setHasPreviewError(false);
+    setImageZoom(100);
+    setImageBaseSize(null);
+    setSelectedReceipt(receipt);
+  };
+
+  const closeReceiptPreview = () => {
+    setSelectedReceipt(null);
+    setIsPreviewLoading(false);
+    setHasPreviewError(false);
+    setImageZoom(100);
+    setImageBaseSize(null);
+  };
 
   // Every line item belongs here, including expenses whose receipt is missing.
   const derivedReceipts: ReceiptRecord[] = lineItems
@@ -228,6 +257,8 @@ export function Receipts() {
   }, {});
   const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
   const showRequestorCol = isFinance || (isApprover && scope === 'team');
+  const selectedPreviewUrl = uploadUrl(selectedReceipt?.fileUrl) ?? '';
+  const selectedReceiptHasImagePreview = isImagePreviewUrl(selectedPreviewUrl);
 
   const renderReceiptGrid = (items: ReceiptRecord[], showRequestor: boolean) => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6 pt-4">
@@ -235,7 +266,7 @@ export function Receipts() {
         <Card
           key={receipt.id}
           className="overflow-hidden hover:border-primary transition-all cursor-pointer group hover:shadow-md"
-          onClick={() => setSelectedReceipt(receipt)}
+          onClick={() => openReceiptPreview(receipt)}
         >
           <div className="h-36 bg-surface-container-high flex flex-col items-center justify-center relative p-4">
             <span className={`material-symbols-outlined text-4xl mb-1 ${receipt.fileUrl ? 'text-primary' : 'text-tertiary'}`}>
@@ -289,7 +320,7 @@ export function Receipts() {
         <table className="w-full min-w-[650px] text-left">
           <thead className="bg-primary/5 text-[10px] uppercase tracking-wider text-outline"><tr><th>Vendor / Merchant</th><th>Purpose &amp; Claim Ref</th><th>Date</th><th>Receipt Status</th><th>Amount (PHP)</th></tr></thead>
           <tbody className="divide-y divide-outline-variant/30 bg-white">
-            {items.map(receipt => <tr key={receipt.id} tabIndex={0} role="button" onClick={() => setSelectedReceipt(receipt)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedReceipt(receipt); } }} className="cursor-pointer hover:bg-primary/5">
+            {items.map(receipt => <tr key={receipt.id} tabIndex={0} role="button" onClick={() => openReceiptPreview(receipt)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReceiptPreview(receipt); } }} className="cursor-pointer hover:bg-primary/5">
               <td><p className="text-sm font-semibold">{receipt.vendor}</p><p className="text-xs text-outline">{receipt.category}</p></td>
               <td><p className="text-sm">{receipt.businessPurpose || '?'}</p><p className="font-mono-data text-xs text-primary">{receipt.claimRef || '?'}</p>{showRequestor && <p className="text-xs text-outline">{users.find(user => user.id === receipt.requestorId)?.name}</p>}</td>
               <td className="text-xs whitespace-nowrap">{receipt.date}</td>
@@ -338,7 +369,7 @@ export function Receipts() {
           {items.map(receipt => (
             <tr role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.currentTarget.click(); } }}
               key={receipt.id}
-              onClick={() => setSelectedReceipt(receipt)}
+              onClick={() => openReceiptPreview(receipt)}
               className="hover:bg-slate-50 cursor-pointer transition-colors"
             >
               <td className="px-5 py-4">
@@ -642,20 +673,65 @@ export function Receipts() {
 
       {/* Preview Modal */}
       {selectedReceipt && (
-        <Modal isOpen onClose={() => setSelectedReceipt(null)} titleId="receipt-preview-title" className="max-w-2xl">
+        <Modal isOpen onClose={closeReceiptPreview} titleId="receipt-preview-title" className="max-w-2xl">
           <div className="bg-surface-container-lowest rounded-xl w-full p-6 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-outline-variant pb-3">
               <div>
                 <h3 id="receipt-preview-title" className="font-headline-sm text-on-surface">{selectedReceipt.fileName}</h3>
                 <p className="text-xs text-outline">{selectedReceipt.vendor} • {selectedReceipt.date}</p>
               </div>
-              <button aria-label="Close receipt preview" onClick={() => setSelectedReceipt(null)} className="text-outline hover:text-on-surface">
+              <button aria-label="Close receipt preview" onClick={closeReceiptPreview} className="text-outline hover:text-on-surface">
                 <span aria-hidden="true" className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <div className="bg-surface-container-low border border-outline-variant rounded-lg p-8 flex flex-col items-center justify-center min-h-[260px]">
+            <div
+              aria-busy={isPreviewLoading}
+              className="relative flex h-[340px] min-h-[260px] max-h-[60vh] flex-col overflow-hidden rounded-lg border border-outline-variant bg-surface-container-low"
+            >
+              {selectedReceiptHasImagePreview && !hasPreviewError && (
+                <div
+                  role="toolbar"
+                  aria-label="Receipt image zoom controls"
+                  className="flex shrink-0 items-center justify-center gap-2 border-b border-outline-variant px-3 py-2"
+                >
+                  <button
+                    type="button"
+                    aria-label="Zoom out"
+                    disabled={imageZoom <= MIN_IMAGE_ZOOM}
+                    onClick={() => setImageZoom(value => Math.max(MIN_IMAGE_ZOOM, value - IMAGE_ZOOM_STEP))}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">remove</span>
+                  </button>
+                  <span aria-live="polite" className="min-w-12 text-center text-xs font-medium tabular-nums text-on-surface">
+                    {imageZoom}%
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Zoom in"
+                    disabled={imageZoom >= MAX_IMAGE_ZOOM}
+                    onClick={() => setImageZoom(value => Math.min(MAX_IMAGE_ZOOM, value + IMAGE_ZOOM_STEP))}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Reset zoom"
+                    disabled={imageZoom === 100}
+                    onClick={() => setImageZoom(100)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">restart_alt</span>
+                  </button>
+                </div>
+              )}
+              <div
+                data-testid={selectedReceiptHasImagePreview ? 'receipt-image-viewport' : undefined}
+                className="relative min-h-0 flex-1 overflow-auto p-4"
+              >
               {(() => {
-                const url = uploadUrl(selectedReceipt.fileUrl) ?? '';
+                const url = selectedPreviewUrl;
                 if (!url) {
                   return (
                     <div className="text-center space-y-2">
@@ -665,11 +741,54 @@ export function Receipts() {
                     </div>
                   );
                 }
-                if (url.startsWith('data:image') || url.startsWith('blob:') || url.match(/\.(jpeg|jpg|gif|png)($|\?)/i)) {
-                  return <img src={url} alt="Receipt preview" className="max-h-64 object-contain rounded" />;
+                if (hasPreviewError) {
+                  return (
+                    <div data-testid="receipts-preview-error" role="alert" className="text-center space-y-2">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[48px] text-error">error_outline</span>
+                      <p className="font-semibold text-on-surface">Unable to display receipt</p>
+                      <p className="text-xs text-outline">The file could not be loaded. You can try downloading it instead.</p>
+                    </div>
+                  );
                 }
-                if (url.match(/\.pdf($|\?)/i)) {
-                  return <iframe title="Receipt attachment" src={url} className="w-full h-64 rounded border border-outline-variant" />;
+                if (isImagePreviewUrl(url)) {
+                  return (
+                    <div className="flex min-h-full min-w-full w-max items-center justify-center">
+                      <img
+                        src={url}
+                        alt="Receipt preview"
+                        onLoad={event => {
+                          const { width, height } = event.currentTarget.getBoundingClientRect();
+                          setImageBaseSize({ width, height });
+                          setIsPreviewLoading(false);
+                        }}
+                        onError={() => {
+                          setIsPreviewLoading(false);
+                          setHasPreviewError(true);
+                        }}
+                        className={imageBaseSize ? 'shrink-0 rounded object-contain' : 'max-h-64 max-w-full rounded object-contain'}
+                        style={imageBaseSize ? {
+                          width: imageBaseSize.width * imageZoom / 100,
+                          height: imageBaseSize.height * imageZoom / 100,
+                          maxWidth: 'none',
+                          maxHeight: 'none',
+                        } : undefined}
+                      />
+                    </div>
+                  );
+                }
+                if (isPdfPreviewUrl(url)) {
+                  return (
+                    <iframe
+                      title="Receipt attachment"
+                      src={url}
+                      onLoad={() => setIsPreviewLoading(false)}
+                      onError={() => {
+                        setIsPreviewLoading(false);
+                        setHasPreviewError(true);
+                      }}
+                      className="w-full h-64 rounded border border-outline-variant"
+                    />
+                  );
                 }
                 return (
                   <div className="text-center space-y-2">
@@ -679,6 +798,20 @@ export function Receipts() {
                   </div>
                 );
               })()}
+              {isPreviewLoading && !hasPreviewError && (
+                <div
+                  data-testid="receipts-preview-loading-indicator"
+                  role="status"
+                  aria-live="polite"
+                  className="absolute inset-0 z-10 flex flex-col items-center justify-center space-y-2 bg-surface-container-low/80 backdrop-blur-2xs"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[36px] text-primary animate-spin">
+                    progress_activity
+                  </span>
+                  <p className="text-xs font-medium text-on-surface-variant">Loading receipt preview…</p>
+                </div>
+              )}
+              </div>
             </div>
             <div className="flex justify-between items-center text-sm pt-2">
               <div>
@@ -700,7 +833,7 @@ export function Receipts() {
                     <span className="material-symbols-outlined text-[16px]">download</span> Download
                   </Button>
                 </a>}
-                <Button size="sm" onClick={() => setSelectedReceipt(null)}>Close</Button>
+                <Button size="sm" onClick={closeReceiptPreview}>Close</Button>
               </div>
             </div>
           </div>
