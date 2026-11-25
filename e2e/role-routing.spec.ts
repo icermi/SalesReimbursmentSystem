@@ -71,6 +71,24 @@ async function loginAs(page: Page, persona: typeof personas[number]) {
   await expect(page).toHaveURL(new RegExp(`/${persona.slug}/?$`));
 }
 
+test('requestor dashboard omits New Claim while My Requests keeps the claim creation path', async ({ page }) => {
+  const requestor = personas[0];
+  await mockApis(page);
+  await page.goto('/claims');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+
+  await loginAs(page, requestor);
+  await expect(page.getByRole('heading', { name: 'Hello, Mia.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /New Claim/ })).toHaveCount(0);
+
+  await page.getByRole('link', { name: /My Requests/ }).click();
+  await expect(page).toHaveURL(/\/requestor\/claims\/?$/);
+  const newClaimButton = page.getByRole('button', { name: /New Claim/ });
+  await expect(newClaimButton).toBeVisible();
+  await newClaimButton.click();
+  await expect(page).toHaveURL(/\/requestor\/claims\/new(?:\?.*)?$/);
+});
+
 for (const persona of personas) {
   test(`${persona.role} login lands on its lowercase role dashboard and prefixes sidebar links`, async ({ page }) => {
     const pageErrors: string[] = [];
