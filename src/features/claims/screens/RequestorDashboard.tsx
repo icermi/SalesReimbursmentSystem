@@ -62,12 +62,6 @@ export function RequestorDashboard() {
           <h2 className="font-display text-display text-on-surface">Hello, {currentUser.name.split(' ')[0]}.</h2>
           <p className="font-body-lg text-body-lg text-on-surface-variant mt-1">Today is {formatLongDate(new Date())}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button className="gap-2 px-6" onClick={() => navigate('/claims/new')}>
-            <span className="material-symbols-outlined text-[20px]">note_add</span>
-            New Claim
-          </Button>
-        </div>
       </div>
 
       {draftsCount > 0 && (
