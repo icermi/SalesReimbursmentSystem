@@ -39,6 +39,9 @@ const isImagePreviewUrl = (url: string) =>
   url.startsWith('data:image') || url.startsWith('blob:') || /\.(jpeg|jpg|gif|png)($|\?)/i.test(url);
 
 const isPdfPreviewUrl = (url: string) => /\.pdf($|\?)/i.test(url);
+const MIN_IMAGE_ZOOM = 50;
+const MAX_IMAGE_ZOOM = 200;
+const IMAGE_ZOOM_STEP = 10;
 
 export function Receipts() {
   const navigate = useNavigate();
@@ -59,6 +62,8 @@ export function Receipts() {
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRecord | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [hasPreviewError, setHasPreviewError] = useState(false);
+  const [imageZoom, setImageZoom] = useState(100);
+  const [imageBaseSize, setImageBaseSize] = useState<{ width: number; height: number } | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [groupBy, setGroupBy] = useState<'none' | 'member' | 'client'>('none');
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,6 +84,8 @@ export function Receipts() {
     const url = uploadUrl(receipt.fileUrl) ?? '';
     setIsPreviewLoading(Boolean(url && (isImagePreviewUrl(url) || isPdfPreviewUrl(url))));
     setHasPreviewError(false);
+    setImageZoom(100);
+    setImageBaseSize(null);
     setSelectedReceipt(receipt);
   };
 
@@ -86,6 +93,8 @@ export function Receipts() {
     setSelectedReceipt(null);
     setIsPreviewLoading(false);
     setHasPreviewError(false);
+    setImageZoom(100);
+    setImageBaseSize(null);
   };
 
   // Every line item belongs here, including expenses whose receipt is missing.
@@ -248,6 +257,8 @@ export function Receipts() {
   }, {});
   const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
   const showRequestorCol = isFinance || (isApprover && scope === 'team');
+  const selectedPreviewUrl = uploadUrl(selectedReceipt?.fileUrl) ?? '';
+  const selectedReceiptHasImagePreview = isImagePreviewUrl(selectedPreviewUrl);
 
   const renderReceiptGrid = (items: ReceiptRecord[], showRequestor: boolean) => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6 pt-4">
@@ -675,10 +686,52 @@ export function Receipts() {
             </div>
             <div
               aria-busy={isPreviewLoading}
-              className="relative overflow-hidden bg-surface-container-low border border-outline-variant rounded-lg p-8 flex flex-col items-center justify-center min-h-[260px]"
+              className="relative flex h-[340px] min-h-[260px] max-h-[60vh] flex-col overflow-hidden rounded-lg border border-outline-variant bg-surface-container-low"
             >
+              {selectedReceiptHasImagePreview && !hasPreviewError && (
+                <div
+                  role="toolbar"
+                  aria-label="Receipt image zoom controls"
+                  className="flex shrink-0 items-center justify-center gap-2 border-b border-outline-variant px-3 py-2"
+                >
+                  <button
+                    type="button"
+                    aria-label="Zoom out"
+                    disabled={imageZoom <= MIN_IMAGE_ZOOM}
+                    onClick={() => setImageZoom(value => Math.max(MIN_IMAGE_ZOOM, value - IMAGE_ZOOM_STEP))}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">remove</span>
+                  </button>
+                  <span aria-live="polite" className="min-w-12 text-center text-xs font-medium tabular-nums text-on-surface">
+                    {imageZoom}%
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Zoom in"
+                    disabled={imageZoom >= MAX_IMAGE_ZOOM}
+                    onClick={() => setImageZoom(value => Math.min(MAX_IMAGE_ZOOM, value + IMAGE_ZOOM_STEP))}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Reset zoom"
+                    disabled={imageZoom === 100}
+                    onClick={() => setImageZoom(100)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">restart_alt</span>
+                  </button>
+                </div>
+              )}
+              <div
+                data-testid={selectedReceiptHasImagePreview ? 'receipt-image-viewport' : undefined}
+                className="relative min-h-0 flex-1 overflow-auto p-4"
+              >
               {(() => {
-                const url = uploadUrl(selectedReceipt.fileUrl) ?? '';
+                const url = selectedPreviewUrl;
                 if (!url) {
                   return (
                     <div className="text-center space-y-2">
@@ -699,16 +752,28 @@ export function Receipts() {
                 }
                 if (isImagePreviewUrl(url)) {
                   return (
-                    <img
-                      src={url}
-                      alt="Receipt preview"
-                      onLoad={() => setIsPreviewLoading(false)}
-                      onError={() => {
-                        setIsPreviewLoading(false);
-                        setHasPreviewError(true);
-                      }}
-                      className="max-h-64 object-contain rounded"
-                    />
+                    <div className="flex min-h-full min-w-full w-max items-center justify-center">
+                      <img
+                        src={url}
+                        alt="Receipt preview"
+                        onLoad={event => {
+                          const { width, height } = event.currentTarget.getBoundingClientRect();
+                          setImageBaseSize({ width, height });
+                          setIsPreviewLoading(false);
+                        }}
+                        onError={() => {
+                          setIsPreviewLoading(false);
+                          setHasPreviewError(true);
+                        }}
+                        className={imageBaseSize ? 'shrink-0 rounded object-contain' : 'max-h-64 max-w-full rounded object-contain'}
+                        style={imageBaseSize ? {
+                          width: imageBaseSize.width * imageZoom / 100,
+                          height: imageBaseSize.height * imageZoom / 100,
+                          maxWidth: 'none',
+                          maxHeight: 'none',
+                        } : undefined}
+                      />
+                    </div>
                   );
                 }
                 if (isPdfPreviewUrl(url)) {
@@ -746,6 +811,7 @@ export function Receipts() {
                   <p className="text-xs font-medium text-on-surface-variant">Loading receipt preview…</p>
                 </div>
               )}
+              </div>
             </div>
             <div className="flex justify-between items-center text-sm pt-2">
               <div>
