@@ -170,7 +170,7 @@ export const updateSupportStatus = (id: string, status: string) =>
 
 /** Mark outbox emails read. Ignore failures — it's a cosmetic read-state update. */
 export const markEmailsRead = (ids: string[]) =>
-  apiFetch('/api/outbox/read', { method: 'PUT', body: JSON.stringify({ ids }) }).catch(() => {});
+  apiFetch('/api/outbox', { method: 'PUT', body: JSON.stringify({ ids }) }).catch(() => {});
 
 // --- delegation lifecycle ---------------------------------------------------
 
