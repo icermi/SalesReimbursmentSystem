@@ -332,7 +332,7 @@ export function Receipts() {
                 <span aria-hidden="true" className="material-symbols-outlined rounded-2xl bg-primary/5 p-4 text-4xl text-primary">folder_open</span>
                 <p className="text-sm font-semibold text-on-surface">No expenses found</p>
                 <p className="text-xs text-outline">Expense lines will appear here when they are added to a claim.</p>
-                {scope === 'mine' && <div className="mt-2 flex gap-2"><Button size="sm" onClick={() => navigate('/claims/new')}><span aria-hidden="true" className="material-symbols-outlined text-[16px]">add</span>Create New Expense</Button><Button size="sm" variant="outline" onClick={() => navigate('/claims/new')} title="Attach a receipt when adding an expense to a new claim"><span aria-hidden="true" className="material-symbols-outlined text-[16px]">upload_file</span>Upload Receipt</Button></div>}
+                {scope === 'mine' && <div className="mt-2 flex gap-2"><Button size="sm" onClick={() => navigate('/claims/new')}><span aria-hidden="true" className="material-symbols-outlined text-[16px]">add</span>Create New Expense</Button></div>}
               </div>
             </td></tr>}
           </tbody>
